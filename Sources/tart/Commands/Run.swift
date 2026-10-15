@@ -432,10 +432,16 @@ struct Run: AsyncParsableCommand {
     let localStorage = try VMStorageLocal()
     let vmDir = try localStorage.open(name)
 
-    // Validate disk format support
-    let vmConfig = try VMConfig(fromURL: vmDir.configURL)
-    if !vmConfig.diskFormat.isSupported {
-      throw ValidationError("Disk format '\(vmConfig.diskFormat.rawValue)' is not supported on this system.")
+    // Resolve an NBD root before the local format check. The NBD attachment
+    // never opens the local image, so an unsupported local format is irrelevant.
+    let diskOptions = DiskOptions(rootDiskOpts)
+    let rootNBD = try rootDiskNBD(diskOptions)
+
+    if rootNBD == nil {
+      let vmConfig = try VMConfig(fromURL: vmDir.configURL)
+      if !vmConfig.diskFormat.isSupported {
+        throw ValidationError("Disk format '\(vmConfig.diskFormat.rawValue)' is not supported on this system.")
+      }
     }
 
     let storageLock = try FileLock(lockURL: Config().tartHomeDir)
@@ -472,10 +478,6 @@ struct Run: AsyncParsableCommand {
       }
       serialPorts.append(createSerialPortConfiguration(tty_read!, tty_write!))
     }
-
-    // Parse root disk options
-    let diskOptions = DiskOptions(rootDiskOpts)
-    let rootNBD = try rootDiskNBD(diskOptions)
 
     // Parse guest provisioning options
     #if arch(arm64) && compiler(>=6.4)
